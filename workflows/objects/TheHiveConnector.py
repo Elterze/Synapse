@@ -5,7 +5,7 @@ import logging
 import json
 
 from thehive4py.api import TheHiveApi
-from thehive4py.models import Case, CaseTask, CaseTaskLog, CaseObservable
+from thehive4py.models import Case, CaseTask, CaseTaskLog, CaseObservable, AlertArtifact, Alert
 
 class TheHiveConnector:
     'TheHive connector'
@@ -160,4 +160,53 @@ class TheHiveConnector:
             return esObservableId
         else:
             self.logger.error('File observable upload failed')
+            raise ValueError(json.dumps(response.json(), indent=4, sort_keys=True))
+
+    def getAlerts(self, query, range=None, sort=None):
+        self.logger.info('%s.getAlerts starts', __name__)
+
+        response = self.theHiveApi.find_alerts(query=query, range=range, sort=sort)
+        return response
+
+    def craftAlertArtifact(self, artifacts_dict):
+        """Takes a dict of artifacts and returns 
+        a list of AlertArtifact objects"""
+        self.logger.info('%s.craftAlertArtifact starts', __name__)
+
+        artifacts = []
+        for dataType in artifacts_dict:
+            data = artifacts_dict[dataType]
+            if type(data) == list:
+                for elmt in data:
+                    artifacts.append(AlertArtifact(dataType=dataType, data=elmt))
+            else:
+                artifacts.append(AlertArtifact(dataType=dataType, data=data))
+        return artifacts
+
+    def craftAlert(self, title, description, severity, date,
+     tags, sourceRef, artifacts_list):
+        self.logger.info('%s.craftAlert starts', __name__)
+
+        alert = Alert(title=title,
+            description=description,
+            severity=severity,
+            date=date,
+            tags=tags,
+            type='SIEM',
+            source='QRadar',
+            sourceRef=sourceRef,
+            artifacts=artifacts_list)
+        return alert
+
+    def createAlert(self, alert):
+        self.logger.info('%s.createAlert starts', __name__)
+
+        response = self.theHiveApi.create_alert(alert)
+
+        if response.status_code == 201:
+            esAlertId =  response.json()['id']
+            createdAlert = Alert(json=self.theHiveApi.get_alert(esAlertId).json())
+            return createdAlert
+        else:
+            self.logger.error('Alert creation failed')
             raise ValueError(json.dumps(response.json(), indent=4, sort_keys=True))

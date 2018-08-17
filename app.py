@@ -4,9 +4,11 @@
 import os
 import logging, logging.handlers
 from flask import Flask, request, jsonify
+import json
 
 from workflows.common.common import getConf
 from workflows.Ews2Case import connectEws
+from workflows.qradartest import createQradarAlert, closingQradarOffense
 
 app_dir = os.path.dirname(os.path.abspath(__file__))
 
@@ -38,6 +40,47 @@ def ews2case():
         return jsonify(workflowReport), 200
     else:
         return jsonify(workflowReport), 500
+
+@app.route('/qradaralert',methods=['GET'])
+def qradaralert():
+    workflowReport = createQradarAlert()
+    if workflowReport['success']:
+        return jsonify(workflowReport), 200
+    else:
+        return jsonify(workflowReport), 500
+
+@app.route('/thehivewebhook',methods=['POST'])
+def thehivewebhook():
+    data = json.loads(request.data)
+    #print(json.dumps(data, indent=4))
+
+    #Parse data
+    obj_type = data['objectType']
+    status = data['details']['status']
+    try:
+        resol_status = data['details']['resolutionStatus']
+        note_text = "Closing summary : " + data['details']['summary']
+    except KeyError:
+        resol_status = None
+        note_text = "Alert ignored"
+    tags = data['object']['tags']
+    offense_id = None
+    for tag in tags:
+        if tag[:8] == "QRadarID":
+            offense_id = tag[9:]
+
+    #Closing QRadar offense after closing TheHive case or alert
+    if resol_status != "Duplicated" and "src:QRadar" in tags and ((
+        obj_type == "alert" and status == "Ignored") or (
+            obj_type == "case" and status == "Resolved")):
+            workflowReport = closingQradarOffense(offense_id, note_text, resol_status)
+            if workflowReport['success']:
+                return jsonify(workflowReport), 200
+            else:
+                return jsonify(workflowReport), 500            
+                
+    return jsonify({'thehivewebhook': 'ok'}), 200
+
 
 @app.route('/version', methods=['GET'])
 def getSynapseVersion():
